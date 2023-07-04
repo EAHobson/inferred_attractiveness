@@ -1,0 +1,648 @@
+---
+title: "Summarizing the time series runs"
+author: "Liz Hobson"
+date: "August 2022"
+output: html_document
+---
+
+In this version (Hb) I fixed the counting of the number of streaks (was only reporting 1/NA rather than actual length/number of streaks) and re-ran the entire loop with all model variants
+
+Script updated for new runs in Aug 2022 and all new compiled data from the re-runs were used.
+
+
+```{r, message=FALSE, warning=FALSE}
+library(dplyr)
+library(reshape2)
+library(scales)
+library(stringr)
+library(purrr)
+library(tidyr)
+library(zoo)
+library(tidyverse)
+library(beepr)
+
+matrix.please<-function(x) {
+  m<-as.matrix(x[,-1])
+  rownames(m)<-x[,1]
+  m
+}
+
+cv <- function(x) 100*( sd(x)/mean(x))
+
+remove_outliers <- function(x, na.rm = TRUE, ...) {
+  qnt <- quantile(x, probs=c(.25, .75), na.rm = na.rm, ...)
+  H <- 1.5 * IQR(x, na.rm = na.rm)
+  y <- x
+  y[x < (qnt[1] - H)] <- NA
+  y[x > (qnt[2] + H)] <- NA
+  y
+}
+
+#supress warnings
+options(warn=-1)
+```
+
+
+#Import data & rbind together (all compiled data from normal runs)
+```{r}
+data.path <- "Rawdata_compiled/"
+
+#runs.fd.f <- read.csv(paste0(data.path,"compiledruns.fd.f.csv"))  #glimpse(runs.fd.f)
+runs.fd.x <- read.csv(paste0(data.path, "compiledruns.fd.x.csv"))  #glimpse(runs.fd.x)
+#runs.fde.f <- read.csv(paste0(data.path, "compiledruns.fde.f.csv"))  #glimpse(runs.fde.f)
+runs.fde.x <- read.csv(paste0(data.path, "compiledruns.fde.x.csv"))  #glimpse(runs.fde.x)
+#runs.ncs.f <- read.csv(paste0(data.path, "compiledruns.ncs.f.csv")) #glimpse(runs.ncs.f)
+runs.ncs.x <- read.csv(paste0(data.path, "compiledruns.ncs.x.csv")) #glimpse(runs.ncs.x)
+#runs.sc.f <- read.csv(paste0(data.path, "compiledruns.sc.f.csv")) #glimpse(runs.sc.f)
+runs.sc.x <- read.csv(paste0(data.path, "compiledruns.sc.x.csv")) #glimpse(runs.sc.x)
+runs.fd.fa <- read.csv(paste0(data.path, "compiledruns.fd.fa.csv"))  #glimpse(runs.fd.fa)
+runs.fd.fs <- read.csv(paste0(data.path, "compiledruns.fd.fs.csv"))  #glimpse(runs.fd.fs)
+runs.fde.xpt1 <- read.csv(paste0(data.path, "compiledruns.fde.xpt1.csv"))  #glimpse(runs.fde.xpt1)
+runs.pnov <- read.csv(paste0(data.path, "compiledruns.pnov.x.csv"))  #glimpse(runs.pnov)
+runs.pfd.x <- read.csv(paste0(data.path, "compiledruns.pfd.x.csv"))
+
+all.runs <- rbind.data.frame( 
+                             runs.fd.x,
+                             runs.fde.x,
+                             runs.ncs.x,
+                             runs.sc.x,
+                             runs.fd.fa, 
+                             runs.fd.fs,
+                             runs.fde.xpt1, 
+                             runs.pfd.x,
+                             runs.pnov
+                             ) 
+
+glimpse(all.runs)
+
+
+# runs have rowIDs, delete that first column
+all.runs <- select(all.runs, -1) #glimpse(all.runs)
+#head(all.runs)
+```
+
+
+#separate parts of file names
+```{r}
+# for col 1 which has full names, split it out then split the parts
+all.runs.split.names <- all.runs[,1] #head(all.runs[,1]) #head(all.runs.split.names)
+
+all.runs.split.names <- strsplit(as.character(all.runs.split.names), ".", fixed = TRUE) #head(all.runs.split.names)
+
+#unlist data from one rowxcolumn cell
+all.runs.split.names <- as.data.frame(do.call(rbind, all.runs.split.names)) #head(all.runs.split.names) #str(all.runs.split.names)
+
+# add informative column names
+colnames(all.runs.split.names) <- c("param", "model", "setting", "group.size", "run") #head(all.runs.split.names)
+
+all.runs.split.names$runID <- sub('.', '', all.runs.split.names$run)
+all.runs.split.names$group.size <- as.numeric(sub('.', '', all.runs.split.names$group.size)) 
+
+all.runs.split.names$runID <- as.numeric(all.runs.split.names$runID) #str(all.runs.split.names) unique(all.runs.split.names$setting)
+
+
+#bind back to all.runs
+all.runsWmeta <- cbind.data.frame(all.runs.split.names, all.runs) #str(all.runsWmeta) #str(all.runs)
+
+#add individual run ID name
+all.runsWmeta$fileWsa <- paste0(all.runsWmeta$file, "_s", all.runsWmeta$s, "_a", all.runsWmeta$a)
+
+#str(all.runsWmeta)
+#test <- head(subset(all.runsWmeta, model=="fd" & setting=="f" & param=="p" & N=="N10" & runID=="3" & s==0 & a==0)) #names(test)
+
+all.runsWmeta <- all.runsWmeta %>% select(-run, -file, -fileWsa) #str(all.runsWmeta) length(all.runsWmeta$runID)
+unique(all.runsWmeta$setting)
+unique(all.runsWmeta$param)
+names(all.runsWmeta)
+unique(all.runsWmeta$group.size)
+
+glimpse(all.runsWmeta)
+```
+
+# CHECK OUTPUT OF RUNS
+Should be 110 subparts per model X params X N X run number (and 2200 per model X params X N)
+```{r, echo=TRUE}
+run.meta.summary <- all.runsWmeta %>% dplyr::group_by(param, model, setting, group.size) %>% tally() 
+
+#run.meta.summary
+unique(run.meta.summary$n) #all of these should have 2200 runs each
+
+```
+
+
+# LOOP TO SUMMARIZE
+
+## Set up preconditions
+```{r}
+
+#filter data to retain only the parameters of interest
+all.runsWmeta.main_params <- subset(all.runsWmeta, param=="ta" | param=="p")
+unique(all.runsWmeta.main_params$model)
+unique(all.runsWmeta.main_params$setting)
+unique(all.runsWmeta.main_params$group.size)
+unique(all.runsWmeta.main_params$param)
+
+#set unique things to loop over names(all.runsWmeta.sub)
+key.MSNsaR <- unique(all.runsWmeta.main_params[c("model", "setting", "group.size", "runID", "s", "a")]) #unique(df[c("yad", "per")])
+
+# SORT
+key.MSNsaR <- key.MSNsaR %>% arrange(model, setting, group.size, s, a, runID)
+nrow(key.MSNsaR)
+unique(key.MSNsaR$model)
+
+# set up thresholds 
+lower <- c(0.10, 0.20, 0.25, 0.30, 0.40)
+upper <- c(0.60, 0.70, 0.75, 0.80, 0.90)
+
+threshold.pairs <- as.data.frame(cbind(lower, rev(upper)))
+colnames(threshold.pairs) <- c("lower", "upper")
+threshold.pairs$lower.lab <- c(10, 20, 25, 30, 40)
+threshold.pairs$upper.lab <- c(90,80,75,70,60)
+
+```
+
+
+# SUMMARIZE IN LOOP 
+
+rle() finds the run length for repeated values more extreme than thresholds. "Run" (number repeated in a row) must be >1 (at least two values in a row more extreme than thresholds)
+
+Remove outliers: https://stackoverflow.com/questions/4787332/how-to-remove-outliers-from-a-dataset/4788102#4788102
+```{r}
+# get start time to find run time at end of loop
+start.time <- Sys.time()
+
+#SUBSET TO RUN JUST PARTICULAR MODEL/SETTING COMBO
+#key.MSNsaR <- subset(key.MSNsaR, model=="fd" & setting=="x")  #glimpse(key.MSNsaR)
+
+key.models <- as.character(unique(all.runsWmeta.main_params$model))
+unique.loop.MSNkeys <- unique(all.runsWmeta.main_params[c("model", "setting", "group.size")]) 
+
+
+#to run just one model variant, adjust here:
+key.models <- "pfd"
+unique.loop.MSNkeys <- subset(unique.loop.MSNkeys, model=="pfd")
+
+#LOOP
+# for each model
+for(MODEL in 1:length(key.models)) { #MODEL=1
+  loop.model <- key.models[MODEL]
+  #loop.data.4keys <- subset(all.runsWmeta.main_params, model==loop.model) 
+  loop.MSN.keysXmodel <- subset(unique.loop.MSNkeys, model==loop.model)
+  key.setting <- as.character(unique(loop.MSN.keysXmodel$setting)) #list settings in focal model
+
+  for(SETTING in 1:length(key.setting)) { #SETTING=1 
+    loop.setting <- key.setting[SETTING] 
+    loop.MSNkeysXsetting <- subset(loop.MSN.keysXmodel, setting==loop.setting)
+
+    key.groupsizes <- as.numeric(unique(loop.MSNkeysXsetting$group.size))
+  
+
+    for(GROUPN in 1:length(key.groupsizes)) { #GROUPN=1
+      loop.groupn <- key.groupsizes[GROUPN]
+      
+      print(paste("current model:", loop.model, loop.setting, "group size", loop.groupn, sep=" "))
+
+      # filter keys
+      loop.MSNRsa <- key.MSNsaR %>% filter(model==loop.model, setting==loop.setting, group.size==loop.groupn) #glimpse(loop.MSNRsa)
+      
+      
+      # Initiate blank dataframes (write to these once per model/setting/group combo)
+      summary.fixation <- data.frame(
+                         model=character(),
+                         stetting=character(),
+                         group.size=numeric(),
+                         runID=numeric(),
+                         s=numeric(),
+                         a=numeric(),
+                         param=character(),
+                         first.stable.gen=numeric(), 
+                         n.gens.stable=numeric(), 
+                         first.stable.gen.fuzzy=numeric(), 
+                         n.gens.stable.fuzzy=numeric()
+                         )
+
+      
+        summary.thresholds <- data.frame(
+                                   model=character(),
+                                   stetting=character(),
+                                   groupn=numeric(),
+                                   run=numeric(),
+                                   s=numeric(),
+                                   a=numeric(),
+                                   param=character(),
+                                   thresholds=character(),
+                                   n_lower=numeric(),
+                                   n_upper=numeric(),
+                                   n.extreme.shifts=numeric(),
+                                   #all streaks (potentially including any outliers)
+                                   ext.streak.median=numeric(),
+                                   ext.streak_3gen.n=numeric(),
+                                   ext.streak_5gen.n=numeric(),
+                                   ext.streak_10gen.n=numeric(),
+                                   ext.streak_3gen.median=numeric(),
+                                   ext.streak_5gen.median=numeric(),
+                                   ext.streak_10gen.median=numeric(),
+                                   #without outliers
+                                   outliers.n=numeric(),
+                                   ext.streak.median_no.outliers=numeric(),
+                                   ext.streak_3gen.n.noouts=numeric(),
+                                   ext.streak_5gen.n.noouts=numeric(),
+                                   ext.streak_10gen.n.noouts=numeric(),
+                                   #number streaks of certain length in upper & lower individually
+                                   ext.streak_3gen.n_Up.noouts=numeric(),
+                                   ext.streak_5gen.n_Up.noouts=numeric(),
+                                   ext.streak_10gen.n_Up.noouts=numeric(),
+                                   ext.streak_3gen.n_Lw.noouts=numeric(),
+                                   ext.streak_5gen.n_Lw.noouts=numeric(),
+                                   ext.streak_10gen.n_Lw.noouts=numeric(),
+                                   #summary of streak length
+                                   ext.streak_3gen.median.noouts=numeric(),
+                                   ext.streak_5gen.median.noouts=numeric(),
+                                   ext.streak_10gen.median.noouts=numeric()
+                                   )
+      
+      # Initiate progress bar
+      n.loops<-nrow(loop.MSNRsa) 
+      pb <- txtProgressBar(min = 0, max = n.loops, style = 3)
+      
+
+      for(KEY in 1:nrow(loop.MSNRsa)) { #KEY=600
+        
+        # Update the progress bar
+        setTxtProgressBar(pb, KEY)
+        
+        # extract temp values for loop
+        loop.run <- loop.MSNRsa[KEY,4]
+        loop.s <- loop.MSNRsa[KEY,5]
+        loop.a <- loop.MSNRsa[KEY,6]
+        
+        loop.meta <- cbind.data.frame(loop.model, loop.setting, loop.groupn, loop.run, loop.s, loop.a)
+        colnames(loop.meta) <- c("model", "setting", "groupn", "run", "s", "a")
+        
+        # extract data for this particular MSNRsa key
+        loop.data.ta <- all.runsWmeta.main_params %>% filter(model==loop.model, 
+                                                     setting==loop.setting, 
+                                                     group.size==loop.groupn, 
+                                                     runID==loop.run,
+                                                     s==loop.s,
+                                                     a==loop.a,
+                                                     param=="ta")
+        
+        loop.data.p <- all.runsWmeta.main_params %>% filter(model==loop.model, 
+                                                     setting==loop.setting, 
+                                                     group.size==loop.groupn, 
+                                                     runID==loop.run,
+                                                     s==loop.s,
+                                                     a==loop.a,
+                                                     param=="p")        
+
+        loop.data.ta.gendata <- loop.data.ta[1,8:ncol(loop.data.ta)]
+        loop.data.ta.gendata.melt <- reshape2::melt(loop.data.ta.gendata, id.vars = NULL)  
+        loop.data.ta.gendata.melt <- loop.data.ta.gendata.melt %>% arrange(variable) #make sure data are sorted by generation
+        
+        loop.data.p.gendata <- loop.data.p[1,8:ncol(loop.data.p)]
+        loop.data.p.gendata.melt <- reshape2::melt(loop.data.p.gendata, id.vars = NULL)  
+        loop.data.p.gendata.melt <- loop.data.p.gendata.melt %>% arrange(variable) #make sure data are sorted by generation
+        
+        #combine ta and p data into single dataframe
+        loop.data.ta_p <- cbind.data.frame(loop.data.ta.gendata.melt[,1:2], loop.data.p.gendata.melt[,2])
+        colnames(loop.data.ta_p) <- c("gen", "ta", "p")  
+  
+        #make generation column numeric
+        loop.data.ta_p$gen <- as.numeric(sub('.', '', loop.data.ta_p$gen)) #head(loop.data.ta_p) 
+
+        #replace any NAs with 0
+        loop.data.ta_p[is.na(loop.data.ta_p)] <- 0
+
+        #make sure data are sorted by generationsort
+        FWD_data <- loop.data.ta_p %>% arrange(gen) #head(FWD_data.ta)
+        
+        #reverse sort (to find stabilization)
+        REV_data <- loop.data.ta_p %>% arrange(-gen)
+
+  
+    ########## Summarize Trait A data for trait fixation
+        
+        #stabilization: at what generation does raw ts stabilize? 
+        REV_data$lead.ta <- lead(REV_data$ta)
+        REV_data[is.na(REV_data)] <- 0 #make all rows that are na 0's (gen 100=ta 0)
+        REV_data$lead.diff <- REV_data$lead.ta-REV_data$ta
+        REV_data[100,5] <- 0 #make last row lead difference 0
+        
+        first.non0 <- REV_data %>%
+                          filter(lead.diff > 0) %>%
+                          slice(1) %>%
+                          pull(gen)
+        
+        first.non000001 <- REV_data %>%
+                          filter(abs(lead.diff) > 0.000001) %>%
+                          slice(1) %>%
+                          pull(gen)
+        
+        #if the result from above is nothing, then the system was always stable
+          #return generation 1 at which stability occurred
+          #otherwise, return the generation at which the above is first satisfied (first stable gen)
+          #if system NEVER stabilized, return 100 for first stable gen and 0 for n gens stable
+        first.stable.gen <- ifelse(length(first.non0)==0, 1, first.non0)
+        first.stable.gen.fuzzy <- ifelse(length(first.non000001)==0, 1, first.non000001)
+       
+        n.gens.stable <- 100-first.stable.gen
+        n.gens.stable.fuzzy <- 100-first.stable.gen.fuzzy
+        
+        FWD_data.fuzzy <- subset(FWD_data, gen<=first.stable.gen.fuzzy)
+
+        ### COMPILE SUMMARY STATS for Trait A
+        compiled.fixation <- cbind.data.frame(
+                        loop.meta,
+                        first.stable.gen, n.gens.stable, 
+                        first.stable.gen.fuzzy, n.gens.stable.fuzzy
+                        )
+        
+        #bind compiled to main summary stats
+        summary.fixation <- rbind.data.frame(summary.fixation, compiled.fixation) 
+        
+        # Quantify streaks & extreme shifts for both trait A and preference for each threshold
+        for(th in 1:nrow(threshold.pairs)){ #th=3
+          
+           #for loop, name lower and upper thresholds (for labeling data later)
+          thrsh.lower <- threshold.pairs$lower.lab[th]
+          thrsh.upper <- threshold.pairs$upper.lab[th]
+          loop.thresholds <- paste(thrsh.lower, thrsh.upper, sep="_")
+
+          #for(PARAM in 1:length(key.param)) { #PARAM=1 -- use FWD_data.fuzzy[,PARAM+1] for muliple params (ta first)
+            
+          PARAM <- "p"
+          
+          #count the number of values more extreme than thresholds
+          n_lower <- sum(FWD_data.fuzzy$p<threshold.pairs$lower[th])
+          n_upper <- sum(FWD_data.fuzzy$p>threshold.pairs$upper[th])
+          
+          ### Mark when values are more extreme than thresholds (use to find runs/streaks where values more extreme)
+          FWD_data.fuzzy$YN_lower <- ifelse(FWD_data.fuzzy$p<threshold.pairs$lower[th], "Lw", "n")
+          FWD_data.fuzzy$YN_upper <- ifelse(FWD_data.fuzzy$p>threshold.pairs$upper[th], "Up", "n")
+          FWD_data.fuzzy$YN_both <- ifelse(FWD_data.fuzzy$YN_lower=="Lw", "Lw", ifelse(FWD_data.fuzzy$YN_upper=="Up", "Up", "n"))
+          
+          #subset to include streak data only for extreme values (exclude streaks in non-extreme zone)
+          YN_extreme <- FWD_data.fuzzy$YN_both[FWD_data.fuzzy$YN_both!="n"] 
+          
+          #make a version that is numeric 
+          YN_extreme.num <- YN_extreme
+          YN_extreme.num[YN_extreme.num=="Up"] <- 1
+          YN_extreme.num[YN_extreme.num=="Lw"] <- -1
+          YN_extreme.num <- as.numeric(YN_extreme.num)
+          
+          #remove duplicated values from the vector, just save "shifts" between non-extreme, high-extreme, low-extreme 
+          # if there aren't any shifts (YN_extreme.num=NA) this will just return NA
+          YN_extreme.shifts <- YN_extreme.num[YN_extreme.num != lag(YN_extreme.num, default = !YN_extreme.num[1])]
+          
+          #how many shifts between extremes were there? 
+          # if only in one extreme, length will be 1; one extreme then other=2, cycle from one to other back to first=3
+          # subtract 1 from total in case there's only a 1 or -1 in YN_extreme.shifts
+          # if there aren't any shifts, length will be 1 (for the NA) and below will return n.extreme.shifts=0
+          n.extreme.shifts <- ifelse(length(YN_extreme.shifts)>1, length(YN_extreme.shifts)-1, 0)
+          
+          #find where values exceed thresholds several generations in a row (a "streak") using only extreme values
+          rle.streaks <- rle(FWD_data.fuzzy$YN_both)
+          
+          # check for whether there is any data, if none, return 0's/NONE 
+          # is.logical is FALSE when there's data, TRUE when no data
+          ifelse(is.logical(rle.streaks[1])==TRUE, lengths <- 0, lengths <- rle.streaks$lengths)
+          ifelse(is.logical(rle.streaks[2])==TRUE, values <- "NONE", values <- rle.streaks$values)
+          
+          streaks <- cbind.data.frame(lengths, values)
+
+          ext.streaks <- subset(streaks, values!="n" & lengths>1) #CHANGE BACK TO 1
+          
+          #if there aren't any streaks longer than 2 (two same-category in a row), add NONE to dataframe so it's not empty
+          options(stringsAsFactors=FALSE)
+          if(nrow(ext.streaks)==0) ext.streaks <- rbind.data.frame(ext.streaks, 
+                                                                   cbind.data.frame(lengths=c(NA), values=c(as.character("NONE")))) 
+          
+            
+          # NO POINTS REMOVED (POTENTIALLY WITH OUTLIERS)
+          # CALCULATE THESE VERSIONS FOR REFERENCE, BUT USE VALUES WITHOUT OUTLIERS FOR ANALYSES
+          ifelse(ext.streaks$values=="NONE", 
+                 ext.streak.median <- NA, 
+                 ext.streak.median <- median(ext.streaks$lengths))
+          
+          # return any streak greater than or equal to the desired number of generations
+          ifelse(length(ext.streaks$lengths[ext.streaks$lengths>=3])>0, 
+                 ext.streak_3gen <- ext.streaks$lengths[ext.streaks$lengths>=3], 
+                 ext.streak_3gen <-NA)
+          
+          ifelse(length(ext.streaks$lengths[ext.streaks$lengths>=5])>0, 
+                 ext.streak_5gen <- ext.streaks$lengths[ext.streaks$lengths>=5], 
+                 ext.streak_5gen <-NA)
+          
+          ifelse(length(ext.streaks$lengths[ext.streaks$lengths>=10])>0, 
+                 ext.streak_10gen <- ext.streaks$lengths[ext.streaks$lengths>=10], 
+                 ext.streak_10gen <-NA)
+          
+          
+          ifelse(is.na(ext.streak_3gen), 
+                 ext.streak_3gen.n <- NA, 
+                 ext.streak_3gen.n <- length(ext.streak_3gen))
+          
+          ifelse(is.na(ext.streak_5gen), 
+                 ext.streak_5gen.n <- NA, 
+                 ext.streak_5gen.n <- length(ext.streak_5gen))
+          
+         ifelse(is.na(ext.streak_10gen), 
+                 ext.streak_10gen.n <- NA, 
+                 ext.streak_10gen.n <- length(ext.streak_10gen))
+           
+
+         ifelse(is.na(ext.streak_3gen), 
+                 ext.streak_3gen.n_Up <- NA, 
+                 ext.streak_3gen.n_Up <- length(ext.streaks$values[ext.streaks$lengths>=3 & ext.streaks$values=="Up"]))
+          
+         ifelse(is.na(ext.streak_5gen), 
+                 ext.streak_5gen.n_Up <- NA, 
+                 ext.streak_5gen.n_Up <- length(ext.streaks$values[ext.streaks$lengths>=5 & ext.streaks$values=="Up"]))
+         
+         ifelse(is.na(ext.streak_10gen), 
+                 ext.streak_10gen.n_Up <- NA, 
+                 ext.streak_10gen.n_Up <- length(ext.streaks$values[ext.streaks$lengths>=10 & ext.streaks$values=="Up"])) 
+         
+         ifelse(is.na(ext.streak_3gen), 
+                 ext.streak_3gen.n_Lw <- NA, 
+                 ext.streak_3gen.n_Lw <- length(ext.streaks$values[ext.streaks$lengths>=3 & ext.streaks$values=="Lw"]))
+          
+        ifelse(is.na(ext.streak_5gen), 
+                 ext.streak_5gen.n_Lw <- NA, 
+                 ext.streak_5gen.n_Lw <- length(ext.streaks$values[ext.streaks$lengths>=5 & ext.streaks$values=="Lw"]))
+         
+        ifelse(is.na(ext.streak_10gen), 
+                 ext.streak_10gen.n_Lw <- NA, 
+                 ext.streak_10gen.n_Lw <- length(ext.streaks$values[ext.streaks$lengths>=10 & ext.streaks$values=="Lw"]))         
+          
+        ifelse(is.na(ext.streak_3gen), 
+                 ext.streak_3gen.median <- NA, 
+                 ext.streak_3gen.median <- median(ext.streak_3gen, na.rm=TRUE))
+        
+        ifelse(is.na(ext.streak_5gen), 
+                 ext.streak_5gen.median <- NA, 
+                 ext.streak_5gen.median <- median(ext.streak_5gen, na.rm=TRUE))
+          
+        ifelse(is.na(ext.streak_10gen), 
+                 ext.streak_10gen.median <- NA, 
+                 ext.streak_10gen.median <- median(ext.streak_10gen, na.rm=TRUE))
+        
+
+
+          # WITHOUT OUTLIERS (OUTLIER STREAK LENGTHS REMOVED)
+          # USE THIS VERSION FOR SUMMARIES
+          # ** if ext.streak.median==NA then there are no streaks in timeseries
+          ifelse(ext.streaks$values=="NONE", 
+                 na_outliers <- "NONE", 
+                 na_outliers <- remove_outliers(ext.streaks$lengths)) 
+          
+          ext.streaks.noouts <- cbind.data.frame(ext.streaks, na_outliers)
+          no_outliers <- subset(ext.streaks.noouts, !is.na(na_outliers))
+
+          #count of number of outliers (number NAs from remove_outliers)
+          ifelse(ext.streaks.noouts$na_outliers=="NONE", 
+                 outliers.n <- 0, 
+                 outliers.n <- sum(is.na(ext.streaks.noouts$na_outliers)))
+          
+          #find median streak length without outliers
+          ifelse(no_outliers$na_outliers=="NONE",  
+                 ext.streak.median_no.outliers <- NA, 
+                 ext.streak.median_no.outliers <- median(no_outliers$na_outliers, na.rm=TRUE))
+
+          # return any streak greater than or equal to the desired number of generations
+          # assign these within the ifelse statement to retain the vectors
+          # is.logical is FALSE when there's data, TRUE when no data
+          ifelse(no_outliers$na_outliers=="NONE", 
+                 ext.streak_3gen.noouts <- NA, 
+              ifelse(no_outliers$na_outliers!="NONE" & nrow(subset(no_outliers, na_outliers>=3))==0,
+                     ext.streak_3gen.noouts <- NA,
+                     ext.streak_3gen.noouts <- no_outliers$na_outliers[no_outliers$na_outliers>=3]))
+
+          ifelse(no_outliers$na_outliers=="NONE", 
+                 ext.streak_5gen.noouts <- NA, 
+              ifelse(no_outliers$na_outliers!="NONE" & nrow(subset(no_outliers, na_outliers>=5))==0,
+                 ext.streak_5gen.noouts <- NA,
+                 ext.streak_5gen.noouts <- no_outliers$na_outliers[no_outliers$na_outliers>=5]))
+          
+          ifelse(no_outliers$na_outliers=="NONE", 
+                 ext.streak_10gen.noouts <- NA, 
+              ifelse(no_outliers$na_outliers!="NONE" & nrow(subset(no_outliers, na_outliers>=10))==0,
+                 ext.streak_10gen.noouts <- NA,
+                 ext.streak_10gen.noouts <- no_outliers$na_outliers[no_outliers$na_outliers>=10]))
+         
+          # find the number of streaks (compare this to the number of extreme shifts to see if streaks are at both extremes)
+          ifelse(is.na(ext.streak_3gen.noouts), 
+                 ext.streak_3gen.n.noouts <- NA, 
+                 ext.streak_3gen.n.noouts <- length(ext.streak_3gen.noouts))
+          
+          ifelse(is.na(ext.streak_5gen.noouts), 
+                 ext.streak_5gen.n.noouts <- NA, 
+                 ext.streak_5gen.n.noouts <- length(ext.streak_5gen.noouts))
+          
+          ifelse(is.na(ext.streak_10gen.noouts), 
+                 ext.streak_10gen.n.noouts <- NA, 
+                 ext.streak_10gen.n.noouts <- length(ext.streak_10gen.noouts))
+
+          ifelse(is.na(ext.streak_3gen.noouts), 
+                 ext.streak_3gen.n_Up.noouts <- NA, 
+                 ext.streak_3gen.n_Up.noouts <- length(ext.streaks.noouts$values[ext.streaks.noouts$lengths>=3 & ext.streaks.noouts$values=="Up"]))
+          
+         ifelse(is.na(ext.streak_5gen.noouts), 
+                ext.streak_5gen.n_Up.noouts <- NA, 
+                ext.streak_5gen.n_Up.noouts <- length(ext.streaks.noouts$values[ext.streaks.noouts$lengths>=5 & ext.streaks.noouts$values=="Up"]))
+         
+         ifelse(is.na(ext.streak_10gen.noouts), 
+                ext.streak_10gen.n_Up.noouts <- NA, 
+                ext.streak_10gen.n_Up.noouts <- length(ext.streaks.noouts$values[ext.streaks.noouts$lengths>=10 & ext.streaks.noouts$values=="Up"])) 
+         
+          ifelse(is.na(ext.streak_3gen.noouts),
+                 ext.streak_3gen.n_Lw.noouts <- NA, 
+                 ext.streak_3gen.n_Lw.noouts <- length(ext.streaks.noouts$values[ext.streaks.noouts$lengths>=3 & ext.streaks.noouts$values=="Lw"]))
+          
+         ifelse(is.na(ext.streak_5gen.noouts), 
+                ext.streak_5gen.n_Lw.noouts <- NA, 
+                ext.streak_5gen.n_Lw.noouts <- length(ext.streaks.noouts$values[ext.streaks.noouts$lengths>=5 & ext.streaks.noouts$values=="Lw"]))
+         
+         ifelse(is.na(ext.streak_10gen.noouts), 
+                ext.streak_10gen.n_Lw.noouts <- NA, 
+                ext.streak_10gen.n_Lw.noouts <- length(ext.streaks.noouts$values[ext.streaks.noouts$lengths>=10 & ext.streaks.noouts$values=="Lw"])) 
+         
+          # find median streak length
+          ext.streak_3gen.median.noouts <- median(ext.streak_3gen.noouts, na.rm=TRUE)
+          ext.streak_5gen.median.noouts <- median(ext.streak_5gen.noouts, na.rm=TRUE)
+          ext.streak_10gen.median.noouts <- median(ext.streak_10gen.noouts, na.rm=TRUE)
+          
+          thresh.loop.compiled <- cbind.data.frame(
+                                         loop.meta,
+                                         PARAM,
+                                         loop.thresholds,
+                                         n_lower,
+                                         n_upper,
+                                         n.extreme.shifts,
+                                         #all streaks (potentially including any outliers)
+                                         ext.streak.median,
+                                         ext.streak_3gen.n,
+                                         ext.streak_5gen.n,
+                                         ext.streak_10gen.n,
+                                         ext.streak_3gen.median,
+                                         ext.streak_5gen.median,
+                                         ext.streak_10gen.median,
+                                         #without outliers
+                                         outliers.n,
+                                         ext.streak.median_no.outliers,
+                                         ext.streak_3gen.n.noouts,
+                                         ext.streak_5gen.n.noouts,
+                                         ext.streak_10gen.n.noouts,
+                                         #number streaks of certain length in upper & lower individually
+                                         ext.streak_3gen.n_Up.noouts,
+                                         ext.streak_5gen.n_Up.noouts,
+                                         ext.streak_10gen.n_Up.noouts,
+                                         ext.streak_3gen.n_Lw.noouts,
+                                         ext.streak_5gen.n_Lw.noouts,
+                                         ext.streak_10gen.n_Lw.noouts,
+                                         #summary of all streak lengths
+                                         ext.streak_3gen.median.noouts,
+                                         ext.streak_5gen.median.noouts,
+                                         ext.streak_10gen.median.noouts
+                                         )
+          
+          summary.thresholds <- rbind.data.frame(summary.thresholds, thresh.loop.compiled) 
+          #} #end parameter loop
+          
+          } #end threshold loop
+          
+        } #end key loop (by runID)
+        
+         # at end of each group size loop, write data to file and clear garbage
+         write_csv(summary.fixation, paste0("Cached_data/summary.fixationXta_", 
+                                           paste(loop.meta$model, loop.meta$setting, loop.meta$groupn, sep="_"), 
+                                           ".csv")
+                  )
+      
+         write_csv(summary.thresholds, paste0("Cached_data/summary.preferencesXthresholds_", 
+                                           paste(loop.meta$model, loop.meta$setting, loop.meta$groupn, sep="_"), 
+                                           ".csv")
+                  )
+          
+      } #end group size loop
+
+      # make a "fanfare" sound at end of this loop   
+      beepr::beep(sound = 3, expr = NULL)
+  
+        #clear garbage
+        gc()
+
+  } #end setting loop
+        
+} #end model loop    
+       
+#make a ping sound if there is an error
+beepr::beep_on_error(expr, sound = 1)        
+
+
+# get end time to find run time at end of loop
+end.time <- Sys.time()
+run.time <- end.time - start.time 
+print(run.time) #2.05 hours run time for 2022-01-02 results
+```

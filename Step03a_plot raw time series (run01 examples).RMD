@@ -1,0 +1,356 @@
+---
+title: "Step03b_plot raw time series (run01 examples)"
+author: "Liz Hobson"
+date: "2022-10-02"
+output: html_document
+---
+
+Goal: Plot one example time series per s/a combination
+```{r, message=FALSE, warning=FALSE}
+library(dplyr)
+library(reshape2)
+library(scales)
+library(stringr)
+library(purrr)
+library(tidyr)
+library(zoo)
+library(tidyverse)
+
+matrix.please<-function(x) {
+  m<-as.matrix(x[,-1])
+  rownames(m)<-x[,1]
+  m
+}
+
+cv <- function(x) 100*( sd(x)/mean(x))
+
+remove_outliers <- function(x, na.rm = TRUE, ...) {
+  qnt <- quantile(x, probs=c(.25, .75), na.rm = na.rm, ...)
+  H <- 1.5 * IQR(x, na.rm = na.rm)
+  y <- x
+  y[x < (qnt[1] - H)] <- NA
+  y[x > (qnt[2] + H)] <- NA
+  y
+}
+
+#supress warnings
+options(warn=-1)
+```
+
+
+#Import raw timeseries data & rbind together
+```{r}
+# set data path
+raw.data.path <- "Rawdata_compiled/"
+
+# import data
+runs.fd.fa <- read.csv(paste0(raw.data.path, "compiledruns.fd.fa.csv"))  
+runs.fd.fs <- read.csv(paste0(raw.data.path, "compiledruns.fd.fs.csv")) 
+runs.fd.x <- read.csv(paste0(raw.data.path, "compiledruns.fd.x.csv")) 
+runs.fde.x <- read.csv(paste0(raw.data.path, "compiledruns.fde.x.csv")) 
+runs.fde.xpt1 <- read.csv(paste0(raw.data.path, "compiledruns.fde.xpt1.csv"))  
+runs.ncs.x <- read.csv(paste0(raw.data.path, "compiledruns.ncs.x.csv")) 
+runs.pfd.x <- read.csv(paste0(raw.data.path, "compiledruns.pfd.x.csv")) 
+runs.pnov.x <- read.csv(paste0(raw.data.path, "compiledruns.pnov.x.csv"))  
+runs.sc.x <- read.csv(paste0(raw.data.path, "compiledruns.sc.x.csv")) 
+
+# compile data
+all.runs <- rbind.data.frame(runs.fd.fa, 
+                             runs.fd.fs,
+                             runs.fd.x, 
+                             runs.fde.x,
+                             runs.fde.xpt1,
+                             runs.ncs.x,
+                             runs.pfd.x,
+                             runs.pnov.x,
+                             runs.sc.x
+                             ) 
+# check compiled data
+glimpse(all.runs)
+
+# runs have rowIDs, delete that first column
+all.runs <- select(all.runs, -1) #glimpse(all.runs)
+head(all.runs)
+```
+
+## Extract metadata from raw timeseries files
+```{r}
+#separate parts of file names
+# for col 1 which has full names, split it out then split the parts
+all.runs.split.names <- all.runs[,1] #head(all.runs[,1]) #head(all.runs.split.names)
+
+all.runs.split.names <- strsplit(as.character(all.runs.split.names), ".", fixed = TRUE) #head(all.runs.split.names)
+
+#unlist data from one rowxcolumn cell
+all.runs.split.names <- as.data.frame(do.call(rbind, all.runs.split.names)) #head(all.runs.split.names) #str(all.runs.split.names)
+
+# add informative column names
+colnames(all.runs.split.names) <- c("param", "model", "setting", "group.size", "run") #head(all.runs.split.names)
+
+all.runs.split.names$runID <- sub('.', '', all.runs.split.names$run)
+all.runs.split.names$group.size <- as.numeric(sub('.', '', all.runs.split.names$group.size)) 
+
+all.runs.split.names$runID <- as.numeric(all.runs.split.names$runID) #str(all.runs.split.names) unique(all.runs.split.names$setting)
+
+
+#bind back to all.runs
+all.runsWmeta <- cbind.data.frame(all.runs.split.names, all.runs) #str(all.runsWmeta) #str(all.runs)
+
+#add individual run ID name
+all.runsWmeta$fileWsa <- paste0(all.runsWmeta$file, "_s", all.runsWmeta$s, "_a", all.runsWmeta$a)
+
+#str(all.runsWmeta)
+#test <- head(subset(all.runsWmeta, model=="fd" & setting=="f" & param=="p" & N=="N10" & runID=="3" & s==0 & a==0)) #names(test)
+
+all.runsWmeta <- all.runsWmeta %>% select(-run, -file, -fileWsa) #str(all.runsWmeta) length(all.runsWmeta$runID)
+unique(all.runsWmeta$setting)
+unique(all.runsWmeta$param)
+names(all.runsWmeta)
+unique(all.runsWmeta$group.size)
+
+glimpse(all.runsWmeta)
+head(all.runsWmeta)
+```
+
+### CHECK OUTPUT OF RUNS
+Should be 110 subparts per model X params X N X run number (and 2200 per model X params X N)
+```{r, echo=TRUE}
+run.meta.summary <- all.runsWmeta %>% dplyr::group_by(param, model, setting, group.size) %>% tally() 
+
+#run.meta.summary
+unique(run.meta.summary$n) #all of these should have 2200 runs each
+
+```
+
+#Import compiled data summarized from the raw timeseries & extract metadata from file names
+```{r}
+# set data path
+compiled.data.path <- "Cached_data/"
+
+
+# Get file list to use to extract meta data
+file.list <- as.data.frame(list.files(compiled.data.path, recursive=TRUE))
+colnames(file.list) <- "file.name"
+
+# extract just file names with fixation
+file.list_trait.fixation <- as.data.frame(file.list[stringr::str_detect(file.list$file.name, "fixation"), ])  # Extract matching rows with str_detect
+colnames(file.list_trait.fixation) <- "file.name"
+
+
+data_traits <- do.call(rbind, lapply(paste0(compiled.data.path,file.list_trait.fixation$file.name), function(x) read.csv(x, stringsAsFactors = FALSE)))
+
+# extract just file names with preference
+file.list_preferences <- as.data.frame(file.list[stringr::str_detect(file.list$file.name, "preference"), ]) # Extract matching rows with str_detect
+colnames(file.list_preferences) <- "file.name"
+#compile preference data
+data_preferences <- do.call(rbind, lapply(paste0(compiled.data.path, file.list_preferences$file.name), function(x) read.csv(x, stringsAsFactors = FALSE)))
+
+glimpse(data_traits)
+glimpse(data_preferences)
+```
+
+# Wrangle data to plot
+```{r}
+
+#filter data to retain only the parameters of interest
+all.runsWmeta.main_params <- subset(all.runsWmeta, param=="ta" | param=="tb" |param=="p")
+unique(all.runsWmeta.main_params$model)
+unique(all.runsWmeta.main_params$setting)
+unique(all.runsWmeta.main_params$group.size)
+unique(all.runsWmeta.main_params$param)
+
+#set unique things to loop over names(all.runsWmeta.sub)
+key.MSNsa <- unique(all.runsWmeta.main_params[c("model", "setting", "group.size", "s", "a")]) #unique(df[c("yad", "per")])
+
+# SORT
+key.MSNsa <- key.MSNsa %>% arrange(model, setting, group.size, s, a)
+nrow(key.MSNsa)
+unique(key.MSNsa$model)
+
+# set up thresholds 
+lower <- c(0.25)
+upper <- c(0.75)
+
+
+# Retain just the summary data for run 1
+run01s_trait.summ <- subset(data_traits, run=="1")
+run01s_preference.summ <- subset(data_preferences, run=="1" & loop.thresholds=="25_75")
+all.runsWmeta.main_params.RUN01 <- subset(all.runsWmeta.main_params, runID=="1")
+#glimpse(all.runsWmeta.main_params.RUN01)
+#unique(all.runsWmeta.main_params.RUN01$a)
+#unique(all.runsWmeta.main_params.RUN01$s)
+
+```
+
+
+# Plot one single time series per s/a combination for each model and setting
+a range = 0-1 (by 1)
+s range = 0-0.5 (by 0.05)
+```{r}
+
+# get start time to find run time at end of loop
+start.time <- Sys.time()
+
+key.models <- as.character(unique(all.runsWmeta.main_params.RUN01$model))
+unique.loop.MSNkeys <- unique(all.runsWmeta.main_params.RUN01[c("model", "setting", "group.size")]) 
+
+#LOOP
+# for each model
+for(MODEL in 1:length(key.models)) { #MODEL=2
+  loop.model <- key.models[MODEL]
+  #loop.data.4keys <- subset(all.runsWmeta.main_params, model==loop.model) 
+  loop.MSN.keysXmodel <- subset(unique.loop.MSNkeys, model==loop.model)
+  key.setting <- as.character(unique(loop.MSN.keysXmodel$setting)) #list settings in focal model
+
+  for(SETTING in 1:length(key.setting)) { #SETTING=2 
+    loop.setting <- key.setting[SETTING] 
+    loop.MSNkeysXsetting <- subset(loop.MSN.keysXmodel, setting==loop.setting)
+
+    key.groupsizes <- sort(as.numeric(unique(loop.MSNkeysXsetting$group.size)))
+
+    
+    for(GROUPN in 1:length(key.groupsizes)) { #GROUPN=1
+      loop.groupn <- key.groupsizes[GROUPN]
+
+      
+      loop.MSN.filtered.data <- all.runsWmeta.main_params.RUN01 %>% filter(model==loop.model, 
+                                                               setting==loop.setting,
+                                                               group.size==loop.groupn)
+      
+
+      # filter summarized trait A data for this SA combo
+      loop.data.traitA.summary <- run01s_trait.summ %>% filter(model==loop.model, 
+                                                               setting==loop.setting,
+                                                               groupn==loop.groupn)
+      
+      # filter summarized preference data for this SA combo (for 25/75 threshold)
+      loop.SUMM.data_preferences <- run01s_preference.summ %>% filter(loop.thresholds=="25_75",
+                                                                model==loop.model, 
+                                                                setting==loop.setting,
+                                                                groupn==loop.groupn)
+      
+      #glimpse(loop.SUMM.data_preferences)
+      loop.SUMM.data_preferences.sub <- subset(loop.SUMM.data_preferences, 
+                                               select=c(run, s,a, n.extreme.shifts))
+      # Update the progress bar
+      #setTxtProgressBar(pb, SA)
+      
+      colnames(loop.data.traitA.summary)[colnames(loop.data.traitA.summary) == 'run'] <- 'runID'      
+      colnames(loop.SUMM.data_preferences.sub)[colnames(loop.SUMM.data_preferences.sub) == 'run'] <- 'runID'      
+      
+
+         # extract data for this particular MSNRsa key
+        loop.data.ta <- loop.MSN.filtered.data %>% filter(param=="ta")     
+        loop.data.tb <- loop.MSN.filtered.data %>% filter(param=="tb")    
+        loop.data.p <- loop.MSN.filtered.data %>% filter(param=="p")             
+        
+        #reshape data into long format
+        loop.data.ta.melt <- reshape2::melt(loop.data.ta, 
+                                            id.vars=c("param", "model", "setting", 
+                                                      "group.size", "runID", "s", "a"),
+                                            variable="generation", value.name="ta.value")
+        
+        loop.data.ta.melt$gen <- as.numeric(sub('.', '', loop.data.ta.melt$generation))
+
+        
+        
+        loop.data.tb.melt <- reshape2::melt(loop.data.tb, 
+                                            id.vars=c("param", "model", "setting", 
+                                                      "group.size", "runID", "s", "a"),
+                                            variable="generation", value.name="tb.value")
+        
+        loop.data.tb.melt$gen <- as.numeric(sub('.', '', loop.data.tb.melt$generation))
+        
+
+        loop.data.p.melt <- reshape2::melt(loop.data.p, 
+                                            id.vars=c("param", "model", "setting", 
+                                                      "group.size", "runID", "s", "a"),
+                                            variable="generation", value.name="p.value")
+        
+        loop.data.p.melt$gen <- as.numeric(sub('.', '', loop.data.p.melt$generation))
+
+        #unique(loop.data.p.melt$s)
+        
+        pg.title <- (paste0("Model:", loop.model, 
+                          ", setting:", loop.setting, 
+                          ", group size:", loop.groupn,
+                          " (Preference=red, Trait A=dark blue, Trait B=light blue)"))
+        
+        pg.caption <- "Strength of sexual selection (a) on x-axis (0-9); stength of viability selection (s) panels arrayed on y-axis (0-0.5)"
+    
+        
+# plot settings:
+        
+    # trait A=deepskyblue
+    # trait B=turquois
+    # preference=red
+
+    # a on x axis, s on y axis
+        
+        #PLOT 
+        p <- ggplot() + 
+                    geom_rect(data=loop.data.ta.melt, 
+                              mapping=aes(xmin=1, xmax=100, ymin=0.25, ymax=0.75), 
+                              fill="lightgrey", color=NA, alpha=0.01) +
+                    geom_hline(yintercept=0.5, color="darkgrey") +
+                    geom_line(data=loop.data.tb.melt, aes(x=gen, y=tb.value), color='skyblue', size=0.25) +
+                    geom_line(data=loop.data.ta.melt, aes(x=gen, y=ta.value), color='royalblue3', size=0.25) + 
+                    geom_line(data=loop.data.p.melt, aes(x=gen, y=p.value), color='red2', size=0.35) +
+                    ylim(0,1) +
+                    xlim(1,100) +
+                    labs(title=pg.title, 
+                         y="Value", x="Generation", 
+                         subtitle=pg.caption) +
+                    #scale_colour_manual(name="Key:", values=key.colors) +
+                    theme(panel.background = element_blank(),
+                          axis.line = element_line(colour = "black"),
+                          axis.text=element_text(size=8),
+                          #strip.text.x = element_blank(),
+                          panel.grid.major = element_blank(), 
+                          panel.grid.minor = element_blank(),
+                          panel.border = element_rect(colour = "black", fill=NA, size=0.5),
+                          plot.title = element_text(size=10),
+                          plot.subtitle = element_text(size=8)) +
+                   #facet_grid(factor(s, levels=c(1.0,0.9,0.8,0.7,0.6,0.5,0.4,0.3,0.2,0.1,0.0))~a) +
+                   facet_grid(factor(s, levels=c(0.5,0.45,0.4,0.35,0.3,0.25,0.2,0.15,0.1,0.05,0))~a) +
+
+                   geom_vline(data=loop.data.traitA.summary, 
+                               aes(xintercept=first.stable.gen.fuzzy), 
+                               color="royalblue3", linetype="dashed") +
+                  geom_text(data = loop.SUMM.data_preferences.sub, 
+                            aes(x = 1, y = 0.05, 
+                                label = paste0(n.extreme.shifts, " extreme shifts")),
+                            size=1.75, hjust = 0) +
+                  geom_text(data = loop.data.traitA.summary, 
+                            aes(x = 1, y = 0.95, 
+                                label = paste0("Gen. fixed=", first.stable.gen.fuzzy)),
+                            size=1.75, hjust = 0)
+        
+        print(p)
+        
+        
+        file.title <- paste0("Plots_raw timeseries/tseries_run01sa/run01s_sa_",
+                             paste(
+                                loop.model, 
+                                loop.setting, 
+                                loop.groupn,
+                                sep="_"),
+                             ".pdf"
+                              )
+        
+        #SAVE TO PDF
+        ggsave(file.title, width = 12, height = 10)
+         
+
+    
+      
+      #clear garbage
+        gc()
+        
+      } #end group size loop
+    } #end setting loop
+  }   #end model loop  
+
+end.time <- Sys.time()
+end.time-start.time
+```
