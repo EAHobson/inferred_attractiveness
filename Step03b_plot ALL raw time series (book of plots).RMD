@@ -5,6 +5,10 @@ date: "December 17, 2021"
 output: html_document
 ---
 
+This script is Step 3b of the analysis/plotting scripts. 
+
+In this script we plot all of the time series (all 20 replicate runs per s/a combination, group size, and model setting). Each series of 20 replicate runs is saved as a separate pdf file. NOTE: These plots were not reported in the paper or the supplement, but are included here to visualize variability across all 20 replicates of each model parameter combination. These plots are saved to the folder “Plots_book of plots (all raw time series)”
+
 
 ```{r, message=FALSE, warning=FALSE}
 library(dplyr)

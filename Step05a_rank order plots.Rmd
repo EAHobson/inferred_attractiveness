@@ -5,6 +5,10 @@ date: "2022-10-03"
 output: html_document
 ---
 
+This script is Step 5a of the analysis/plotting scripts. 
+
+This script was used to plot the data shown in Figure 2 in the main text.
+
 #load packages
 ```{r}
 library(dplyr)

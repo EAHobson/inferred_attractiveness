@@ -5,9 +5,10 @@ date: "2022-10-02"
 output: html_document
 ---
 
-Goal: summarize across replicated timeseries' (20 replicates per model variant, per s/a combination)
+This script is Step 4b of the analysis/plotting scripts. 
 
-* Note: median number of shifts for all runs (with circuits and also without, including 0 shifts)
+Step 04b is a slight variation of the Step04a script. This variation plots the same time series, but for all Run 02 exemplars instead of all Run 01 exemplars. We plotted the Run 02 exemplars because in one case, the Run 01 exemplar happened to have an unusual pattern that differed from the general pattern seen in the rest of the 20 replicate runs. In this case, we subbed in a Run 02 exemplar to better illustrate the main pattern we highlighted (Figure 4a, the panel for s = 0.1 and a = 0.7 is Run 02; all other time series exemplars are from Run 01s / Step 04a script output).   
+
 
 # Import data & load packages
 ```{r}

@@ -5,6 +5,11 @@ date: "2022-10-03"
 output: html_document
 ---
 
+This script is Step 5b of the analysis/plotting scripts. 
+
+We used a slight variation of the script in Step05a to now plot Figure S2 for the Supplemental Materials.
+
+
 #load packages
 ```{r}
 library(dplyr)

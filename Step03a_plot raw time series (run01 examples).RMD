@@ -5,7 +5,11 @@ date: "2022-10-02"
 output: html_document
 ---
 
-Goal: Plot one example time series per s/a combination
+This script is Step 3a of the analysis/plotting scripts. 
+
+In this script we plot exemplar runs from each model parameter combination. For each combination, we plotted the Run 01 (out of 20 replicate runs) for each s and a setting for each model and each group size. These plots are saved to the folder “Plots_raw timeseries” and the plots are shown in Supplement 3 of the paper (i to xi).
+
+
 ```{r, message=FALSE, warning=FALSE}
 library(dplyr)
 library(reshape2)

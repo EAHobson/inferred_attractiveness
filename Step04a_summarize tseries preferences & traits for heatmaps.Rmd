@@ -5,9 +5,10 @@ date: "2022-10-02"
 output: html_document
 ---
 
-Goal: summarize across replicated timeseries' (20 replicates per model variant, per s/a combination)
+This script is Step 4a of the analysis/plotting scripts. 
 
-* Note: median number of shifts for all runs (with circuits and also without, including 0 shifts)
+In this script we summarize patterns in preferences and trait variation for each s/a combination, for each group size, and for each model type. These summaries are used to plot the heat maps seen in the main text in the figures Fig. 1 (c/d), Fig. 3 (aii/aiii and bii/biii), and Fig. 4 (b/c). These summaries are also used to plot the heat maps seen in the supplemental figures Fig. S1 (aii/aiii, bii/biii, and cii/ciii). This script also pulls out four exemplar raw timeseries runs and plots them. These appear in the main text as panels in Fig. 1(b), Fig. 3 (ai/bi), and Fig. 4(a, but Step4b for one exception). These time series exemplars also appear in the supplemental in Figure S1(ai/bi/ci).
+
 
 # Import data & load packages
 ```{r}

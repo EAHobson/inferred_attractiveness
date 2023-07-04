@@ -5,9 +5,13 @@ date: "August 2022"
 output: html_document
 ---
 
-In this version (Hb) I fixed the counting of the number of streaks (was only reporting 1/NA rather than actual length/number of streaks) and re-ran the entire loop with all model variants
+This is Step 2 of the analysis/plotting scripts. NOTE: this script can take a long time to run!!
 
-Script updated for new runs in Aug 2022 and all new compiled data from the re-runs were used.
+This script is the initial summary of raw time series data from model runs. Output of this script is summarized data which is saved in the “Cached_data” folder. Two types of summaries are saved:
+
+1: “summary.fixation”… type files, which save data on the generation at which trait variation ceased
+
+2: “summary.preferencesXthresholds”… type files, which save data on the patterns of trait preferences in relation to a series of “thresholds” (We use the 25%/75% data in the main paper, but more are summarized here).
 
 
 ```{r, message=FALSE, warning=FALSE}
