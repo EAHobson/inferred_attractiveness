@@ -1,0 +1,105 @@
+---
+title: "Step06_rank order plots"
+author: "Liz Hobson"
+date: "2022-10-03"
+output: html_document
+---
+
+#load packages
+```{r}
+library(dplyr)
+library(reshape2)
+library(scales)
+library(stringr)
+library(purrr)
+library(tidyr)
+library(tidyverse)
+library(ggbump)
+```
+
+#Import data
+```{r}
+rank.path <- "Model output/Rank figure output/For Fig S2/30/"
+
+
+rankN30 <- read_csv("Model output/Rank figure output/For Fig S2/30/Ranks_group30.SUPPMAT.compiled.csv")
+glimpse(rankN30)
+
+
+```
+
+# N=30
+```{r, rank.plot, cache=FALSE, fig.height=3, fig.width=10}
+
+max(rankN30$tabfreqofmaxpref)
+min(rankN30$tabfreqofmaxpref)
+
+rankN30$round.tabfreqofmaxpref <- as.factor(round(rankN30$tabfreqofmaxpref, 1))
+
+rankN30.no0 <- subset(rankN30, tabrankpref>0)
+rankN30.no0.nogen1 <- subset(rankN30.no0, gen>1)
+head(rankN30.no0.nogen1)
+min(rankN30.no0.nogen1$gen)
+
+#use factor and levels to force arrangement of plot
+rankN30.no0.nogen1$s = factor(rankN30.no0.nogen1$s, levels=c(0.4,0.1))
+rankN30.no0.nogen1$a = factor(rankN30.no0.nogen1$a, levels=c(2,7))
+ 
+pdf(paste("Plots_summarized data/rankplots_N30_gen100_SUPPMAT", "pdf", sep="."), width=8, height=3, onefile = TRUE)
+
+
+ggplot(rankN30.no0.nogen1, aes(gen, tabrankpref)) +
+    geom_bump() +
+    scale_y_reverse() +
+    #theme_minimal() +
+    xlab("Generation") + ylab("Ranked frequency of preferred trait variant") +
+    geom_point(aes(gen, tabrankpref, color=tabprefID), alpha = 0.85) +
+      scale_color_manual(values=c("tomato", "goldenrod1", "skyblue1", "blueviolet")) +
+    theme(panel.background = element_blank(), 
+          panel.grid.minor = element_blank(), 
+          panel.border = element_rect(linetype = "solid", fill = NA)) +
+    scale_y_continuous(minor_breaks = seq(0, 4, 1)) +
+    ylim(4,0) + xlim(2,100) +
+    facet_grid(as.factor(s) ~ a) 
+
+
+# strength of preference
+ggplot(rankN30.no0.nogen1, aes(gen, 0, color=tabfreqofmaxpref)) +
+    geom_point(size = 0.75, shape=15) + 
+    scale_color_gradientn(limits = c(0,1), colors=c('white', 'lightgrey', 'black')) +
+    ylim(4,0) + xlim(2,100) +
+    theme(panel.background = element_blank(), 
+          panel.grid.minor = element_blank(), 
+          panel.border = element_rect(linetype = "solid", fill = NA)) +   
+    facet_grid(as.factor(s) ~ a) 
+
+#show.legend = FALSE
+ggplot(rankN30.no0.nogen1, aes(gen, tabrankpref)) +
+    geom_bump() +
+    scale_y_reverse() +
+    #theme_minimal() +
+    xlab("Generation") + ylab("Ranked frequency of preferred trait variant") +
+    geom_point(aes(gen, tabrankpref, color=tabprefID), alpha = 0.85, show.legend = FALSE) +
+      scale_color_manual(values=c("tomato", "goldenrod1", "skyblue1", "blueviolet")) +
+    theme(panel.background = element_blank(), 
+          panel.grid.minor = element_blank(), 
+          panel.border = element_rect(linetype = "solid", fill = NA)) +
+    scale_y_continuous(minor_breaks = seq(0, 4, 1)) +
+    ylim(4,0) + xlim(2,100) +
+    facet_grid(as.factor(s) ~ a) 
+
+
+# strength of preference
+ggplot(rankN30.no0.nogen1, aes(gen, 0, color=tabfreqofmaxpref)) +
+    geom_point(size = 0.75, shape=15,show.legend = FALSE) + 
+    scale_color_gradientn(limits = c(0,1), colors=c('white', 'lightgrey', 'black')) +
+    ylim(4,0) + xlim(2,100) +
+    theme(panel.background = element_blank(), 
+          panel.grid.minor = element_blank(), 
+          panel.border = element_rect(linetype = "solid", fill = NA)) +   
+    facet_grid(as.factor(s) ~ a) 
+
+dev.off()
+
+```
+

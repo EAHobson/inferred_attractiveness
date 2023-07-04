@@ -1,0 +1,574 @@
+---
+title: "Step04_summarize tseries preferences & traits for heatmaps"
+author: "Liz Hobson"
+date: "2022-10-02"
+output: html_document
+---
+
+Goal: summarize across replicated timeseries' (20 replicates per model variant, per s/a combination)
+
+* Note: median number of shifts for all runs (with circuits and also without, including 0 shifts)
+
+# Import data & load packages
+```{r}
+library(dplyr)
+library(tidyverse)
+library(reshape2)
+library(gplots)
+library(RColorBrewer)
+library(extraoperators)
+library(stringr)          
+
+cv <- function(x) 100*( sd(x)/mean(x))
+
+# set data path
+compiled.data.path <- "Cached_data/"
+
+file.list <- as.data.frame(list.files(compiled.data.path, recursive=TRUE))
+colnames(file.list) <- "file.name"
+
+# extract just file names with fixation
+file.list_trait.fixation <- as.data.frame(file.list[stringr::str_detect(file.list$file.name, "fixation"), ])  # Extract matching rows with str_detect
+colnames(file.list_trait.fixation) <- "file.name"
+#compile trait data
+data_traits <- do.call(rbind, lapply(paste0(compiled.data.path,file.list_trait.fixation$file.name), function(x) read.csv(x, stringsAsFactors = FALSE)))
+
+
+# extract just file names with preference
+file.list_preferences <- as.data.frame(file.list[stringr::str_detect(file.list$file.name, "preference"), ]) # Extract matching rows with str_detect
+colnames(file.list_preferences) <- "file.name"
+#compile preference data
+data_preferences <- do.call(rbind, lapply(paste0(compiled.data.path,file.list_preferences$file.name), function(x) read.csv(x, stringsAsFactors = FALSE)))
+
+```
+
+
+
+# Data wrangling
+```{r}
+# sort
+data_traits <- data_traits %>% arrange(model, setting, groupn,s,a, run) #names(data_traits)
+data_preferences <- data_preferences %>% arrange(model, setting, groupn,s,a, run, loop.thresholds) 
+```
+
+# Summarize trait data for Trait A
+Find the median generation at which fixation occurred for all runs where fixation did occur (exclude any runs where variation was maintained)
+```{r}
+unique(data_traits$first.stable.gen.fuzzy)
+
+compiled.ta <- data_traits %>% 
+                  dplyr::group_by(model, setting, groupn, s, a) %>% 
+                  dplyr::summarize(
+                      # for strict stabilization definition
+                        ta.stabilized_Nruns=sum(first.stable.gen<100), 
+                        ta.first.stabilized.gen_median=median(first.stable.gen[first.stable.gen<100]),
+                      # for fuzzy stabilization definition
+                        ta.runs.stabilized.fuzzy_N=sum(first.stable.gen.fuzzy<100), #how many runs n.gens.stable>0 (NA if it didn't stabilize)
+                        ta.first.stabilized.gen.fuzzy_median=median(first.stable.gen.fuzzy[first.stable.gen.fuzzy<100]),
+                      ta.nruns.variation.maintained_fuzzy=20-ta.runs.stabilized.fuzzy_N
+                )
+
+#glimpse(compiled.ta)
+unique(compiled.ta$ta.nruns.variation.maintained_fuzzy)
+
+```
+
+#Import raw timeseries data & rbind together
+```{r}
+# set data path
+raw.data.path <- "Rawdata_compiled/"
+
+# import data
+runs.fd.fa <- read.csv(paste0(raw.data.path, "compiledruns.fd.fa.csv"))  
+runs.fd.fs <- read.csv(paste0(raw.data.path, "compiledruns.fd.fs.csv")) 
+runs.fd.x <- read.csv(paste0(raw.data.path, "compiledruns.fd.x.csv")) 
+runs.fde.x <- read.csv(paste0(raw.data.path, "compiledruns.fde.x.csv")) 
+runs.fde.xpt1 <- read.csv(paste0(raw.data.path, "compiledruns.fde.xpt1.csv"))  
+runs.ncs.x <- read.csv(paste0(raw.data.path, "compiledruns.ncs.x.csv")) 
+runs.pfd.x <- read.csv(paste0(raw.data.path, "compiledruns.pfd.x.csv")) 
+runs.pnov.x <- read.csv(paste0(raw.data.path, "compiledruns.pnov.x.csv"))  
+runs.sc.x <- read.csv(paste0(raw.data.path, "compiledruns.sc.x.csv")) 
+
+# compile data
+all.runs <- rbind.data.frame(runs.fd.fa, 
+                             runs.fd.fs,
+                             runs.fd.x, 
+                             runs.fde.x,
+                             runs.fde.xpt1,
+                             runs.ncs.x,
+                             runs.pfd.x,
+                             runs.pnov.x,
+                             runs.sc.x
+                             ) 
+# check compiled data
+glimpse(all.runs)
+
+# runs have rowIDs, delete that first column
+all.runs <- select(all.runs, -1) #glimpse(all.runs)
+glimpse(all.runs)
+```
+
+## Extract metadata from raw timeseries files
+```{r}
+#separate parts of file names
+# for col 1 which has full names, split it out then split the parts
+all.runs.split.names <- all.runs[,1] #head(all.runs[,1]) #head(all.runs.split.names)
+
+all.runs.split.names <- strsplit(as.character(all.runs.split.names), ".", fixed = TRUE) #head(all.runs.split.names)
+
+#unlist data from one rowxcolumn cell
+all.runs.split.names <- as.data.frame(do.call(rbind, all.runs.split.names)) #head(all.runs.split.names) #str(all.runs.split.names)
+
+# add informative column names
+colnames(all.runs.split.names) <- c("param", "model", "setting", "group.size", "run") #head(all.runs.split.names)
+
+all.runs.split.names$runID <- sub('.', '', all.runs.split.names$run)
+all.runs.split.names$group.size <- as.numeric(sub('.', '', all.runs.split.names$group.size)) 
+
+all.runs.split.names$runID <- as.numeric(all.runs.split.names$runID) #str(all.runs.split.names) unique(all.runs.split.names$setting)
+
+
+#bind back to all.runs
+all.runsWmeta <- cbind.data.frame(all.runs.split.names, all.runs) #str(all.runsWmeta) #str(all.runs)
+
+#add individual run ID name
+all.runsWmeta$fileWsa <- paste0(all.runsWmeta$file, "_s", all.runsWmeta$s, "_a", all.runsWmeta$a)
+
+
+
+all.runsWmeta <- all.runsWmeta %>% select(-run, -file, -fileWsa) #str(all.runsWmeta) length(all.runsWmeta$runID)
+unique(all.runsWmeta$setting)
+unique(all.runsWmeta$param)
+names(all.runsWmeta)
+unique(all.runsWmeta$group.size)
+
+glimpse(all.runsWmeta)
+head(all.runsWmeta)
+```
+
+### CHECK OUTPUT OF RUNS
+Should be 110 subparts per model X params X N X run number (and 2200 per model X params X N)
+```{r, echo=TRUE}
+run.meta.summary <- all.runsWmeta %>% dplyr::group_by(param, model, setting, group.size) %>% tally() 
+
+#run.meta.summary
+unique(run.meta.summary$n) #all of these should have 2200 runs each
+
+```
+
+
+# Import shortcut data
+```{r}
+all.runsWmeta.params_ta.tb.p <- subset(all.runsWmeta, param=="ta" | param=="tb" | param=="p")
+example.ts <- subset(all.runsWmeta.params_ta.tb.p, runID==1 & group.size==30)
+example.ts <- subset(example.ts, s==0.1 | s==0.4)
+example.ts <- subset(example.ts, a==2 | a==7)
+names(example.ts)
+example.ts.melt <- reshape2::melt(example.ts, id.vars = c("model", "setting", "group.size", "param", "runID", "s", "a"))
+head(example.ts.melt)
+#rename measure column
+example.ts.melt$gen <- as.numeric(sub('.', '', example.ts.melt$variable))
+example.ts.melt <- example.ts.melt %>% arrange(model, setting, group.size, param, s, a, runID, gen)
+#add MS key for easier plotting
+example.ts.melt$key.MS <- paste(example.ts.melt$model, 
+                                example.ts.melt$setting, 
+                                sep="."
+                                )
+
+
+# Retain just the summary data for run 1
+run01s_trait.summ <- subset(data_traits, run=="1" & groupn==30)
+run01s_trait.summ.sa <- subset(run01s_trait.summ, s==0.1 | s==0.4)
+run01s_trait.summ.sa <- subset(run01s_trait.summ.sa, a==2 | a==7)
+#add MS key for easier plotting
+run01s_trait.summ.sa$key.MS <- paste(run01s_trait.summ.sa$model, 
+                                run01s_trait.summ.sa$setting, 
+                                sep="."
+                                )
+names(run01s_trait.summ.sa) #use first.stable.gen.fuzzy to plot
+
+```
+
+# Summarize preference data 
+```{r}
+
+#str(streak_p)
+compiled.preferences <- data_preferences %>% dplyr::group_by(model, setting, groupn, s, a, loop.thresholds) %>% 
+  dplyr::summarize(
+    # median number of values in lower/upper thresholds
+    n_lower.median=median(n_lower, na.rm=TRUE), 
+    n_upper.median=median(n_upper, na.rm=TRUE), 
+    
+    # number extreme shifts (1=went from one extreme to other once, no NA, >=2 at least one cycle)
+    extcircuit.nreps.PRESENT=sum(n.extreme.shifts>=2), #count n replicates with shifts >=2 (at least one "cycle")
+    nshiftsXrep.MEDIAN=median(n.extreme.shifts), #median across all replicates, INCLUDING 0
+    nshiftsXrep.MEDIAN.no0=median(n.extreme.shifts[n.extreme.shifts>=2]), #median across all replicates, EXCLUDING 0
+    
+    # # count number runs with outliers (0-n, no NAs)
+    # outliers.n.PRESENT=sum(outliers.n>0), #n replicates with any outliers (count where >0)
+    # outliers.n.MEDIAN=median(outliers.n), #median number of outliers per replicate, including 0
+    
+    # ALL DATA, INCLUDING OUTINER STREAK LENGTHS
+    # count of replicates with extreme streaks present (NA-n, NAs present)
+    gen3.nreps.streak.Wos.PRESENT=sum(!is.na(ext.streak_3gen.n)), #count n replicates with any streaks more than 3 gen (where not NA) 
+    gen5.nreps.streak.Wos.PRESENT=sum(!is.na(ext.streak_5gen.n)), #count n replicates with any streaks more than 5 gen (where not NA) 
+    gen10.nreps.streak.Wos.PRESENT=sum(!is.na(ext.streak_10gen.n)), #count n replicates with any streaks more than 10 gen (where not NA) 
+    
+    # mean number of streaks per replicate (NA-n, NAs present)
+    gen3.NstreakXrep.Wos.MEAN=mean(ext.streak_3gen.n, na.rm=TRUE),#mean of number of streaks / replicate, na.rm=TRUE (streaks more than 3 gen)
+    gen5.NstreakXrep.Wos.MEAN=mean(ext.streak_5gen.n, na.rm=TRUE), #mean of number of streaks / replicate, na.rm=TRUE (streaks more than 5 gen)
+    gen10.NstreakXrep.Wos.MEAN=mean(ext.streak_10gen.n, na.rm=TRUE), #mean of number of streaks / replicate, na.rm=TRUE (streaks more than 10 gen)
+    
+    # mean of median streak length per replicate (NA-n, NAs present)  
+    gen3.medianstreaklenXrep.Wos.MEAN=mean(ext.streak_3gen.median, na.rm=TRUE), #mean of median length of streaks +3gen / replicate, na.rm=TRUE 
+    gen5.medianstreaklenXrep.Wos.MEAN=mean(ext.streak_5gen.median, na.rm=TRUE), #mean of median length of streaks +5gen / replicate, na.rm=TRUE 
+    gen10.medianstreaklenXrep.Wos.MEAN=mean(ext.streak_10gen.median, na.rm=TRUE), #mean of median length of streaks +10gen / replicate, na.rm=TRUE 
+
+    # DATA WITH ANY OUTLIER STREAK LENGTHS REMOVED
+    # count of replicates with extreme streaks present (NA-n, NAs present)
+    gen3.nreps.streak.NOos.PRESENT=sum(!is.na(ext.streak_3gen.n.noouts)), #count n replicates with any streaks more than 3 gen (where not NA) 
+    gen5.nreps.streak.NOos.PRESENT=sum(!is.na(ext.streak_5gen.n.noouts)), #count n replicates with any streaks more than 5 gen (where not NA) 
+    gen10.nreps.streak.NOos.PRESENT=sum(!is.na(ext.streak_10gen.n.noouts)), #count n replicates with any streaks more than 10 gen (where not NA) 
+    
+    # mean of number of streaks / replicate, na.rm=TRUE
+    gen3.NstreakXrep.NOos.MEAN=mean(ext.streak_3gen.n.noouts, na.rm=TRUE), #streaks more than 3 gen
+    gen5.NstreakXrep.NOos.MEAN=mean(ext.streak_5gen.n.noouts, na.rm=TRUE), #streaks more than 5 gen
+    gen10.NstreakXrep.NOos.MEAN=mean(ext.streak_10gen.n.noouts, na.rm=TRUE), #streaks more than 10 gen
+    
+    # mean of median streak length per replicate (NA-n, NAs present)  
+    gen3.medianstreaklenXrep.NOos.MEAN=mean(ext.streak_3gen.median.noouts, na.rm=TRUE), #streaks more than 3 gen
+    gen5.medianstreaklenXrep.NOos.MEAN=mean(ext.streak_5gen.median.noouts, na.rm=TRUE), #streaks more than 5 gen
+    gen10.medianstreaklenXrep.NOos.MEAN=mean(ext.streak_10gen.median.noouts, na.rm=TRUE) #streaks more than 10 gen
+      
+)
+
+
+```
+
+## Check preference summary
+Where "NaN" then it's a summary like mean or median (na.rm=TRUE) where there were all NAs and no other values
+```{r}
+nrow(compiled.preferences)
+#str(compiled.preferences)
+#unique(compiled.preferences$gen3.NstreakXrep.Wos.MEAN)
+#subset(compiled.preferences, ta.first.stabilized.gen.fuzzy_median!=tb.first.stabilized.gen.fuzzy_median)
+```
+
+
+# Format PREFERENCE data for plotting heatmaps
+```{r, selected.summaries, cache=FALSE, fig.height=12, fig.width=24}
+#glimpse(compiled.preferences)
+#names(compiled.preferences)
+#str(compiled.preferences)
+
+
+#melt preference/trait data x model, setting, groupsize, s, a, thresholds
+summary_across.replicates.preferences.mlt <- reshape2::melt(compiled.preferences, 
+                                                id.vars = c("model", "setting", "groupn", "s", "a", "loop.thresholds"))
+
+#rename measure column
+summary_across.replicates.preferences.mlt <- summary_across.replicates.preferences.mlt%>% rename(measure=variable)
+
+#add MS key for easier plotting
+summary_across.replicates.preferences.mlt$key.MS <- paste(
+                                                      summary_across.replicates.preferences.mlt$model, 
+                                                      summary_across.replicates.preferences.mlt$setting, 
+                                                      sep="."
+                                                      )
+
+# add letter to more easily sort panels for plotting
+summary_across.replicates.preferences.mlt$model.plotord[summary_across.replicates.preferences.mlt$key.MS=="fd.x"] <- "a"
+summary_across.replicates.preferences.mlt$model.plotord[summary_across.replicates.preferences.mlt$key.MS=="fd.fa"] <- "b"
+summary_across.replicates.preferences.mlt$model.plotord[summary_across.replicates.preferences.mlt$key.MS=="fd.fs"] <- "c"
+summary_across.replicates.preferences.mlt$model.plotord[summary_across.replicates.preferences.mlt$key.MS=="fde.x"] <- "d"
+summary_across.replicates.preferences.mlt$model.plotord[summary_across.replicates.preferences.mlt$key.MS=="fde.xpt1"] <- "e"
+summary_across.replicates.preferences.mlt$model.plotord[summary_across.replicates.preferences.mlt$key.MS=="ncs.x"] <- "f"
+summary_across.replicates.preferences.mlt$model.plotord[summary_across.replicates.preferences.mlt$key.MS=="pfd.x"] <- "g"
+summary_across.replicates.preferences.mlt$model.plotord[summary_across.replicates.preferences.mlt$key.MS=="pnov.x"] <- "h"
+summary_across.replicates.preferences.mlt$model.plotord[summary_across.replicates.preferences.mlt$key.MS=="sc.x"] <- "i"
+
+
+
+summary_across.replicates.preferences.mlt$model.plotlab <- paste0("(", 
+                                                                  summary_across.replicates.preferences.mlt$model.plotord, ") ", 
+                                                                  summary_across.replicates.preferences.mlt$key.MS
+                                                                  )
+
+glimpse(summary_across.replicates.preferences.mlt)
+
+```
+
+## Melt and format TRAIT data
+```{r}
+#names(compiled.traits)
+#melt preference/trait data x model, setting, groupsize, s, a, thresholds
+summary_across.replicates.traits.mlt <- reshape2::melt(compiled.ta, 
+                                                id.vars = c("model", "setting", "groupn", "s", "a"))
+
+#rename measure column
+summary_across.replicates.traits.mlt <- summary_across.replicates.traits.mlt%>% rename(measure=variable)
+
+#add MS key for easier plotting
+summary_across.replicates.traits.mlt$key.MS <- paste(
+                                                      summary_across.replicates.traits.mlt$model, 
+                                                      summary_across.replicates.traits.mlt$setting, 
+                                                      sep="."
+                                                      )
+
+
+# add letter to more easily sort panels for plotting
+summary_across.replicates.traits.mlt$model.plotord[summary_across.replicates.traits.mlt$key.MS=="fd.x"] <- "a"
+summary_across.replicates.traits.mlt$model.plotord[summary_across.replicates.traits.mlt$key.MS=="fd.fa"] <- "b"
+summary_across.replicates.traits.mlt$model.plotord[summary_across.replicates.traits.mlt$key.MS=="fd.fs"] <- "c"
+summary_across.replicates.traits.mlt$model.plotord[summary_across.replicates.traits.mlt$key.MS=="fde.x"] <- "d"
+summary_across.replicates.traits.mlt$model.plotord[summary_across.replicates.traits.mlt$key.MS=="fde.xpt1"] <- "e"
+summary_across.replicates.traits.mlt$model.plotord[summary_across.replicates.traits.mlt$key.MS=="ncs.x"] <- "f"
+summary_across.replicates.traits.mlt$model.plotord[summary_across.replicates.traits.mlt$key.MS=="pfd.x"] <- "g"
+summary_across.replicates.traits.mlt$model.plotord[summary_across.replicates.traits.mlt$key.MS=="pnov.x"] <- "h"
+summary_across.replicates.traits.mlt$model.plotord[summary_across.replicates.traits.mlt$key.MS=="sc.x"] <- "i"
+
+
+
+summary_across.replicates.traits.mlt$model.plotlab <- paste0("(", 
+                                                                  summary_across.replicates.traits.mlt$model.plotord, ") ", 
+                                                                  summary_across.replicates.traits.mlt$key.MS
+                                                                  )
+glimpse(summary_across.replicates.traits.mlt)
+```
+
+
+## Make key of all measures to run
+```{r}
+#KEY to TRAIT measures
+list.measures.TRAIT.summ <- as.data.frame(as.character(unique(summary_across.replicates.traits.mlt$measure)))
+names(list.measures.TRAIT.summ) <- "measure"
+list.measures.TRAIT.summ$to.run <- "Y"
+summ.mms.TRAIT.torun <- subset(list.measures.TRAIT.summ, to.run=="Y") 
+
+#KEY to PREFERENCE measures
+
+#add threshold to measure to make plotting easier
+summary_across.replicates.preferences.mlt$measure.threshold <- paste(summary_across.replicates.preferences.mlt$measure, summary_across.replicates.preferences.mlt$thresholds, sep=".") #head(summary_across.replicates.preferences.mlt$measure.threshold)
+
+list.measures.PREF.summ <- as.data.frame(as.character(unique(summary_across.replicates.preferences.mlt$measure.threshold)))
+names(list.measures.PREF.summ) <- "measure"
+list.measures.PREF.summ$to.run <- "Y"
+summ.mms.PREF.torun <- subset(list.measures.PREF.summ, to.run=="Y")
+
+
+```
+
+
+
+# Plot preference and trait heatmaps with exemplar time series
+```{r}
+
+#subset just group size 30 data from whole
+summary_across.replicates.preferences.mlt.G30.25x75 <- subset(summary_across.replicates.preferences.mlt, groupn=="30" & loop.thresholds=="25_75")
+summary_across.replicates.traits.mlt.G30 <- subset(summary_across.replicates.traits.mlt, groupn=="30")
+
+unique(summary_across.replicates.preferences.mlt.G30.25x75$measure)
+
+unique.MS.keys <- unique(summary_across.replicates.preferences.mlt.G30.25x75$key.MS)
+
+
+#start pdf plot
+#pdf(paste("Plots_summarized data/ALLheatmaps_preferences&traits", "pdf", sep="."), width=12, height=4.5, onefile = TRUE)
+
+#loop to plot
+for(KEY in 1:length(unique.MS.keys)){ #KEY=4
+  loop.ms.key <- as.character(unique.MS.keys[KEY])
+  
+  #extract trait data for this loop's model and setting combo
+  loop.data_PREF <- subset(summary_across.replicates.preferences.mlt.G30.25x75, key.MS==loop.ms.key) 
+  loop.data_PREF$value <- as.numeric(loop.data_PREF$value)
+  
+  #extract trait data for this loop's model and setting combo
+  loop.data_TRAIT <- subset(summary_across.replicates.traits.mlt.G30, key.MS==loop.ms.key) 
+  loop.data_TRAIT$value <- as.numeric(loop.data_TRAIT$value)
+  
+  #extract example time series
+  loop.ts.exs <- subset(example.ts.melt, key.MS==loop.ms.key) #tail(loop.ts.exs, 50)
+  loop.ts.exs_p <- subset(loop.ts.exs, param=="p")
+  loop.ts.exs_ta <- subset(loop.ts.exs, param=="ta")
+  loop.ts.exs_tb <- subset(loop.ts.exs, param=="tb")
+  
+  
+  
+  #extract generation at fixation for vertical line
+  loop.ta.fixation <- subset(run01s_trait.summ.sa, key.MS==loop.ms.key)
+  
+  # format PREFERENCE data for colors and labels in plot
+      pref.summ_color <- subset(loop.data_PREF, measure=="extcircuit.nreps.PRESENT")
+      pref.summ_color <- subset(pref.summ_color, select=c(key.MS, model.plotlab, groupn, s, a, loop.thresholds, measure, value))
+      names(pref.summ_color)[names(pref.summ_color) == 'value'] <- 'extcircuit.nreps.PRESENT'
+      names(pref.summ_color)[names(pref.summ_color) == 'measure'] <- 'color'
+      
+      pref.summ_label <- subset(loop.data_PREF, measure=="nshiftsXrep.MEDIAN")
+      pref.summ_label <- subset(pref.summ_label, select=c(key.MS, model.plotlab, groupn, s, a, loop.thresholds, measure, value))
+      names(pref.summ_label)[names(pref.summ_label) == 'value'] <- 'nshiftsXrep.MEDIAN'
+      names(pref.summ_label)[names(pref.summ_label) == 'measure'] <- 'label'
+      
+  # format TRIAT data for colors and labels in plot
+      trait.summ_color <- subset(loop.data_TRAIT, measure=="ta.nruns.variation.maintained_fuzzy")
+      trait.summ_color <- subset(trait.summ_color, select=c(key.MS, model.plotlab, groupn, s, a, measure, value))
+      names(trait.summ_color)[names(trait.summ_color) == 'value'] <- 'ta.nruns.variation.maintained_fuzzy'
+      names(trait.summ_color)[names(trait.summ_color) == 'measure'] <- 'color'
+      trait.summ_label <- subset(loop.data_TRAIT, measure=="ta.first.stabilized.gen.fuzzy_median")
+      trait.summ_label <- subset(trait.summ_label, select=c(key.MS, model.plotlab, groupn, s, a, measure, value))
+      names(trait.summ_label)[names(trait.summ_label) == 'value'] <- 'ta.first.stabilized.gen.fuzzy_median'
+      names(trait.summ_label)[names(trait.summ_label) == 'measure'] <- 'label'  
+
+
+#merge color and label data
+pref.summ <- merge(pref.summ_color, 
+                         pref.summ_label, 
+                         by=c("key.MS" ,"model.plotlab", "groupn", "s", "a", "loop.thresholds"))
+
+trait.summ <- merge(trait.summ_color, 
+                         trait.summ_label, 
+                         by=c("key.MS" ,"model.plotlab", "groupn", "s", "a"))
+
+# highlight cells (see https://www.py4u.net/discuss/862186)
+  pref.summ$highlight <- FALSE
+  pref.summ$highlight[pref.summ$s==0.4 & pref.summ$a==2 | pref.summ$s==0.4 & pref.summ$a==7 | pref.summ$s==0.1 & pref.summ$a==2 | pref.summ$s==0.1 & pref.summ$a==7] <- TRUE
+  #unique(mm.data$highlight)
+  cust.highlight.cells <- subset(pref.summ, highlight==TRUE)
+  cust.highlight.cells <- subset(cust.highlight.cells, select=c(groupn,model.plotlab, a,s,highlight))
+  cust.highlight.cells$a.ajusted <- cust.highlight.cells$a+1
+  cust.highlight.cells$s.ajusted[cust.highlight.cells$s==0.1] <- 3
+  cust.highlight.cells$s.ajusted[cust.highlight.cells$s==0.4] <- 9
+ 
+
+  #use factor and levels to force arrangement of plot
+  pref.summ$s.sort = factor(pref.summ$s, levels=c(0.4, 0.1))
+  trait.summ$s.sort = factor(trait.summ$s, levels=c(0.4, 0.1))
+
+    #sort s as factor for the two examples of s
+  loop.ts.exs_tb$s = factor(loop.ts.exs_tb$s, levels=c(0.4, 0.1))
+  loop.ts.exs_ta$s = factor(loop.ts.exs_ta$s, levels=c(0.4, 0.1))
+  loop.ts.exs_p$s = factor(loop.ts.exs_p$s, levels=c(0.4, 0.1))
+  loop.ta.fixation$s = factor(loop.ta.fixation$s, levels=c(0.4, 0.1))
+  #set page title
+  pg.title <- paste0("Model & setting: ", loop.ms.key," (group size=30)")
+
+# EXAMPLE TIME SERIES
+  
+  ts.legend.cols <- c("Females preferring Trait B"="red2", "Frequency of male trait TA2"="royalblue3","Frequency of male trait TB2"="skyblue")
+
+  ex.ts.plots <- ggplot() + 
+                    ylim(0,1) +
+                    xlim(1,100) +
+                    geom_rect(data=loop.ta.fixation, 
+                              mapping=aes(xmin=1, xmax=100, ymin=0.25, ymax=0.75), 
+                              fill="lightgrey", color=NA, alpha=0.5) +
+                    geom_hline(yintercept=0.5, color="darkgrey") +
+                    geom_line(data=loop.ts.exs_tb, 
+                              aes(x=gen, y=value, color="Frequency of male trait TB2"), size=0.5) +
+                    geom_line(data=loop.ts.exs_ta, 
+                              aes(x=gen, y=value, color="Frequency of male trait TA2"), size=0.5) + 
+                    geom_line(data=loop.ts.exs_p, 
+                              aes(x=gen, y=value, color="Females preferring Trait B"), size=0.65) +
+                    scale_colour_manual(name="Parameters: ",values=ts.legend.cols)+
+                    labs(title=pg.title, 
+                         y="Prevalence in population", x="Generation",
+                         subtitle="(a) Examples of dynamics of female preference and male traits") +
+                    theme(panel.background = element_blank(),
+                          axis.line = element_line(colour = "black"),
+                          axis.text=element_text(size=8),
+                          panel.grid.major = element_blank(), 
+                          panel.grid.minor = element_blank(),
+                          panel.border = element_rect(colour = "black", fill=NA, size=1.25),
+                          plot.title = element_text(size=10),
+                          plot.subtitle = element_text(size=9),
+                          legend.position="bottom", legend.direction="vertical",
+                          legend.text=element_text(size=8),
+                          legend.key = element_rect(fill = "white"),
+                          legend.title = element_blank()) +
+                   facet_grid(s~a, #factor(s, levels=c(0.8,0.2))
+                              labeller = label_both) +
+                   geom_vline(data=loop.ta.fixation, 
+                               aes(xintercept=first.stable.gen.fuzzy), 
+                               color="royalblue3", linetype="dashed") 
+  #print(ex.ts.plots)
+                  
+  
+  #PREFERENCE HEATMAP (threshold=25x75, group size=30)
+    heat.pref <- ggplot(data = pref.summ, aes(x=as.factor(a), y=as.factor(s), fill=extcircuit.nreps.PRESENT)) + 
+              geom_tile(colour="white",size=0.25) +
+              # cell labels
+              geom_text(aes(label = round(nshiftsXrep.MEDIAN, 1), 
+                                    color = extcircuit.nreps.PRESENT>9), size=2.5) +
+              scale_color_manual(guide = FALSE, values = c("black", "white")) +
+              #scale_x_continuous(breaks = scales::pretty_breaks(n = 10)) +
+              labs(title = pg.title, 
+                   subtitle="(b) Extreme switches in female preferences",
+                   y = "Strength of viability selection (s)", 
+                   x = expression(paste("Strength of sexual selection (", alpha, ")"))) +
+              scale_fill_gradientn(colours = c("white", pal_female(100)), 
+                                   limits = c(0,20), name = "Replicates with extreme circuit present",
+                                   guide = guide_colorbar(frame.colour = "black", ticks.colour = "black")) +
+              geom_rect(data=cust.highlight.cells, size=1, fill=NA, colour="black",
+                  aes(xmin=as.numeric(a.ajusted) - 0.5, xmax=as.numeric(a.ajusted) + 0.5, ymin=as.numeric(s.ajusted) - 0.5, ymax=as.numeric(s.ajusted) + 0.5)) +
+       theme(panel.background = element_blank(),
+                          axis.line = element_line(colour = "black"),
+                          axis.text=element_text(size=8),
+                          #strip.text.x = element_blank(),
+                          panel.grid.major = element_blank(), 
+                          panel.grid.minor = element_blank(),
+                          panel.border = element_rect(colour = "black", fill=NA, size=0.5),
+                          plot.title = element_text(size=10),
+                          plot.subtitle = element_text(size=9),
+                          legend.position="bottom", legend.direction="horizontal",
+                          legend.text=element_text(size=8),
+                          legend.title=element_text(size=8),
+                          aspect.ratio = 1)
+      
+    #print(heat.pref) 
+    
+    #TRAIT HEATMAP (group size=30)
+    heat.trait <- ggplot(data = trait.summ, aes(x=as.factor(a), y=as.factor(s), fill=ta.nruns.variation.maintained_fuzzy)) + 
+              geom_tile(colour="white",size=0.25) +
+              # cell labels
+              geom_text(aes(label = round(ta.first.stabilized.gen.fuzzy_median, 1), 
+                                    color = ta.nruns.variation.maintained_fuzzy>15), size=2.5) +
+              scale_color_manual(guide = FALSE, values = c("black", "white")) +
+              #scale_x_continuous(breaks = scales::pretty_breaks(n = 10)) +
+              labs(title = pg.title, 
+                   subtitle="(c) Maintenance of genetic variation in male trait",
+                   y = "Strength of viability selection (s)", 
+                   x = expression(paste("Strength of sexual selection (", alpha, ")")))  +
+              scale_fill_gradientn(colours = c("white", pal_male(100)), 
+                                   limits = c(0,20), name = "Replicates retaining trait variability", 
+                                   guide = guide_colorbar(frame.colour = "black", ticks.colour = "black")) +
+              geom_rect(data=cust.highlight.cells, size=1, fill=NA, colour="black",
+                  aes(xmin=as.numeric(a.ajusted) - 0.5, xmax=as.numeric(a.ajusted) + 0.5, ymin=as.numeric(s.ajusted) - 0.5, ymax=as.numeric(s.ajusted) + 0.5)) +
+       theme(panel.background = element_blank(),
+                          axis.line = element_line(colour = "black"),
+                          axis.text=element_text(size=8),
+                          #strip.text.x = element_blank(),
+                          panel.grid.major = element_blank(), 
+                          panel.grid.minor = element_blank(),
+                          panel.border = element_rect(colour = "black", fill=NA, size=0.5),
+                          plot.title = element_text(size=10),
+                          plot.subtitle = element_text(size=9),
+                          legend.position="bottom", legend.direction="horizontal",
+                          legend.text=element_text(size=8),
+                          legend.title=element_text(size=8),
+                          aspect.ratio = 1)
+      
+    #print(heat.trait) 
+    
+#pdf(paste("Fig_compiled_fd.fa", "pdf", sep="."), width=16, height=7, onefile = TRUE)
+gridExtra::grid.arrange(ex.ts.plots, heat.pref, heat.trait, nrow = 1, ncol=3)  
+
+}   
+    
+    
+    
+#end plotting (outside loop so that all plots are in single file)
+#dev.off()
+
+
+```
+
